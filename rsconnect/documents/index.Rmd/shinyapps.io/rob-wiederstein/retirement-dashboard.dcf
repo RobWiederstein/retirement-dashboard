@@ -1,0 +1,13 @@
+name: retirement-dashboard
+title: retirement-dashboard
+username:
+account: rob-wiederstein
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 4564787
+bundleId: 5047007
+url: https://rob-wiederstein.shinyapps.io/retirement-dashboard/
+when: 1631988898.86926
+lastSyncTime: 1631988898.86927
+asMultiple: FALSE
+asStatic: FALSE
