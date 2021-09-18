@@ -18,168 +18,264 @@ output:
           local: false
       font_scale: .875
     #logo: img/logo.png
-    # includes: 
-    #   after_body: ./includes/footer.html
-    # css: www/custom-styles.css
+   
+bibliography: 
+  - references.bib
+  - packages.bib
+#csl: ../ieee-with-url.csl
+nocite: '@*'
 runtime: shiny
 ---
 
 
-```{r global, include=F}
-# url <- "https://dl.dropbox.com/s/qf0y1wmulqtduo4/2021-08-30-retirement_location.csv?dl=0"
-# destfile <- paste0("./data/", "2021-08-30-retirement_location.csv")
-# download.file(url = url, destfile = destfile)
-retirementLoc <- readr::read_csv(file = "./data/2021-08-30-retirement_location.csv",
-                                 show_col_types = FALSE)
-#devtools::install_github("RobWiederstein/retirementLoc")
-#data("retirementLoc", package = "retirementLoc")
-
-```
-
 ```{r load-libraries, include=F}
+# rsconnect package detects the packages that your application uses by looking for explicit library() calls within your application. Be aware that you should not have an explicit install.packages() call within your ui.R or server.R files.
+library(bslib)
+library(ggplot2)
 library(dplyr)
 library(htmltools)
 library(leaflet)
+library(leafpop)
 library(magrittr)
 library(plotly)
+library(ragg)
 library(rmarkdown)
+library(retirementLoc)
 library(shiny)
 library(shinyWidgets)
+library(showtext)
+library(thematic)
 ```
+
+```{r write-package-bib, echo = F}
+# write packages used to bib in current directory
+knitr::write_bib(.packages(), "./packages.bib")
+```
+
+```{r global, include=F}
+# Loading your data within a global chunk will result in 
+# substantially better startup performance 
+data("retirementLoc", package = "retirementLoc")
+data("airportLoc", package = "retirementLoc")
+data("collegeLoc", package = "retirementLoc")
+data("militaryBases", package = "retirementLoc")
+data("hospitalLoc", package = "retirementLoc")
+data("irsMigration", package = "retirementLoc")
+```
+
+```{r setup, include = FALSE, eval=FALSE}
+thematic::thematic_shiny(font = "auto")
+```
+
 # Locator
 
-## Sidebar {.sidebar data-width=350}
+## Inputs {.sidebar data-width=350}
 
 ### Criteria:
 
 ```{r shiny-inputs}
 tags$br()
-tags$p("Twelve criteria can be selected to filter the 3000+ US counties.  (Hawaii and Alaska are excluded).  Sliders are preset at the 2.5% and 97.5% level to eliminate outliers.")
+tags$p("17 criteria can be selected to filter the 3146 US counties. Sliders are preset at the 2.5% and 97.5% level to eliminate outliers.")
 tags$br()
-
+tags$h4("Groups")
 # Input: State ----
-pickerInput("stname", "State:",
-                choices = sort(unique(retirementLoc$stname)),
-                selected = unique(retirementLoc$stname),
-                multiple = T,
-                options = list(
-                `actions-box` = TRUE,
-                `deselect-all-text` = "None",
-                `select-all-text` = "All",
-                `none-selected-text` = "zero"
-                )
+pickerInput("state", "State:",
+  choices = sort(unique(retirementLoc$state)),
+  selected = unique(retirementLoc$state),
+  multiple = T,
+  options = list(
+    `actions-box` = TRUE,
+    `deselect-all-text` = "None",
+    `select-all-text` = "All",
+    `none-selected-text` = "zero"
+  )
 )
-hr()
 # Input: CBSA designation ----
 pickerInput("cbsa_desig", "CBSA Designation:",
-                choices = sort(unique(retirementLoc$cbsa_desig)),
-                selected = unique(retirementLoc$cbsa_desig),
-                multiple = T,
-                options = list(
-                `actions-box` = TRUE,
-                `deselect-all-text` = "None",
-                `select-all-text` = "All",
-                `none-selected-text` = "zero"
-                )
+  choices = sort(unique(retirementLoc$cbsa_desig)),
+  selected = unique(retirementLoc$cbsa_desig),
+  multiple = T,
+  options = list(
+    `actions-box` = TRUE,
+    `deselect-all-text` = "None",
+    `select-all-text` = "All",
+    `none-selected-text` = "zero"
+  )
 )
+# Input: USDA Rural-Urban Continuum  ----
+pickerInput("rucc_2013", "Rural-Urban Continuum (1 - most urban, 9 - least urban):",
+  choices = sort(unique(retirementLoc$rucc_2013)),
+  selected = unique(retirementLoc$rucc_2013),
+  multiple = T,
+  options = list(
+    `actions-box` = TRUE,
+    `deselect-all-text` = "None",
+    `select-all-text` = "All",
+    `none-selected-text` = "zero"
+  )
+)
+br()
+tags$h4("Demographic")
 # Input: population ----
 numericRangeInput(
   inputId = "pop_2020", label = "2020 Population",
-  value = c(min(retirementLoc$pop_2020),
-            max(retirementLoc$pop_2020))
+  value = c(
+    min(retirementLoc$pop_2020, na.rm = T),
+    max(retirementLoc$pop_2020, na.rm = T)
+  )
 )
-# Input: Population Change Lean  ----
+#Input: Population Change Lean  ----
 sliderInput("pct_pop_change", "% Pop. Change 2010 to 2020:",
-         min = -35,
-         max = 140,
-         value = quantile(retirementLoc$pct_pop_change, 
-                          probs = c(.025, .975), na.rm = T),
-         step = 5,
-         round = 1
+  min = -35,
+  max = 140,
+  value = quantile(retirementLoc$pct_pop_change,
+    probs = c(.025, .975), na.rm = T
+  ),
+  step = 5,
+  round = 1
 )
 # Input: Partisan Lean  ----
 sliderInput("partisan_lean", "% Partisan Lean 2020:",
-         min = 0,
-         max = 90,
-         value = quantile(retirementLoc$partisan_lean, 
-                          probs = c(.025, .975), na.rm = T),
-         step = 5,
-         round = 1
-)
-# Input: Life Expectancy  ----
-sliderInput("life_exp", "Life Expectancy (years):",
-         min = round(min(retirementLoc$life_exp, na.rm = T), 0),
-         max = round(max(retirementLoc$life_exp, na.rm = T), 0),
-         value = quantile(retirementLoc$life_exp, 
-                          probs = c(.025, 1), na.rm = T),
-         step = 1,
-         round = 1
+  min = 0,
+  max = 90,
+  value = quantile(retirementLoc$partisan_lean,
+    probs = c(.025, .975), na.rm = T
+  ),
+  step = 5,
+  round = 1
 )
 
-# Input: Average annual temperature  ----
-sliderInput("avg_ann_temp", "Avg. Annual Temp:",
-         min = round(min(retirementLoc$avg_ann_temp, na.rm = T), 0),
-         max = round(max(retirementLoc$avg_ann_temp, na.rm = T), 0),
-        value = quantile(retirementLoc$avg_ann_temp, 
-                          probs = c(0, 1), na.rm = T)
-)
 # Input: broadband 2017  ----
 sliderInput("broadband_2017", "% Broadband 2017:",
-         min = round(min(retirementLoc$broadband_2017, na.rm = T), 0),
-         max = round(max(retirementLoc$broadband_2017, na.rm = T), 0),
-         value = quantile(retirementLoc$broadband_2017, 
-                          probs = c(.025, 1), na.rm = T)
+  min = round(min(retirementLoc$broadband_2017, na.rm = T), 0),
+  max = round(max(retirementLoc$broadband_2017, na.rm = T), 0),
+  value = quantile(retirementLoc$broadband_2017,
+    probs = c(.025, 1), na.rm = T
+  )
+)
+# Input: median household income ----
+sliderInput("med_hh_inc_2019", "Median household income:",
+  min = plyr::round_any(min(retirementLoc$med_hh_inc_2019, na.rm = T), 1000),
+  max = plyr::round_any(max(retirementLoc$med_hh_inc_2019, na.rm = T), 1000),
+  value = plyr::round_any(quantile(retirementLoc$med_hh_inc_2019,
+    probs = c(.025, 1), na.rm = T
+  ), 1000),
+  step = 1000
+)
+# Input: education pct having bachelors degree ----
+sliderInput("pct_bachelor", "% Adults Having Completed College:",
+  min = round(min(retirementLoc$pct_bachelor, na.rm = T), 0),
+  max = round(max(retirementLoc$pct_bachelor, na.rm = T), 0),
+  value = quantile(retirementLoc$pct_bachelor,
+    probs = c(.025, 1), na.rm = T
+  )
+)
+br()
+tags$h4("Health")
+# Input: Life Expectancy  ----
+sliderInput("life_exp", "Life Expectancy (years):",
+  min = round(min(retirementLoc$life_exp, na.rm = T), 0),
+  max = round(max(retirementLoc$life_exp, na.rm = T), 0),
+  value = quantile(retirementLoc$life_exp,
+    probs = c(.025, 1), na.rm = T
+  ),
+  step = 1,
+  round = 1
 )
 
-# Input: home payoff  ----
-sliderInput("years_to_payoff", "Home payoff in years:",
-         min = round(min(retirementLoc$years_to_payoff, na.rm = T), 0),
-         max = round(max(retirementLoc$years_to_payoff, na.rm = T), 0),
-        value = quantile(retirementLoc$years_to_payoff, 
-                          probs = c(0, .975), na.rm = T),
-        step = .5
-)
 # Input: violent_crime_rate ----
 sliderInput("violent_crime_rate", "Violent crime rate:",
-         min = round(min(retirementLoc$violent_crime_rate, na.rm = T), 0),
-         max = round(max(retirementLoc$violent_crime_rate, na.rm = T), 0),
-         value = c(quantile(retirementLoc$violent_crime_rate, 
-                            probs = c(0, .975), na.rm = T))
-)
-# Input: average daily particulate matter 2.5 microns ----
-sliderInput("avg_daily_pm_2_5", "Particulate Matter 2.5:",
-         min = round(min(retirementLoc$avg_daily_pm_2_5, na.rm = T), 0), 
-         max = round(max(retirementLoc$avg_daily_pm_2_5, na.rm = T), 0),
-         value = quantile(retirementLoc$avg_daily_pm_2_5, 
-                          probs = c(0, .975), na.rm = T)
-)
-# Input: access to primary care physician ----
-sliderInput("prim_care_dr_rate", "Primary care physicians:",
-         min = round(min(retirementLoc$prim_care_dr_rate, na.rm = T), 0),
-         max = round(max(retirementLoc$prim_care_dr_rate, na.rm = T), 0),
-         value = quantile(retirementLoc$prim_care_dr_rate, 
-                          probs = c(.025, 1), na.rm = T)
-         
+  min = round(min(retirementLoc$violent_crime_rate, na.rm = T), 0),
+  max = round(max(retirementLoc$violent_crime_rate, na.rm = T), 0),
+  value = c(quantile(retirementLoc$violent_crime_rate,
+    probs = c(0, .975), na.rm = T
+  ))
 )
 
+# Input: average daily particulate matter 2.5 microns ----
+sliderInput("average_daily_pm2_5", "Particulate Matter 2.5:",
+  min = min(retirementLoc$average_daily_pm2_5, na.rm = T),
+  max = max(retirementLoc$average_daily_pm2_5, na.rm = T),
+  value = quantile(retirementLoc$average_daily_pm2_5,
+    probs = c(0, .975), na.rm = T
+  )
+)
+
+# Input: access to primary care physician ----
+sliderInput("prim_care_dr_rate", "Primary care physicians:",
+  min = round(min(retirementLoc$prim_care_dr_rate, na.rm = T), 0),
+  max = round(max(retirementLoc$prim_care_dr_rate, na.rm = T), 0),
+  value = quantile(retirementLoc$prim_care_dr_rate,
+    probs = c(.025, 1), na.rm = T
+  )
+)
+br()
+tags$h4("Weather")
+# Input: Average annual temperature  ----
+sliderInput("avg_annual_temp", "Avg. Annual Temp:",
+  min = round(min(retirementLoc$avg_annual_temp, na.rm = T), 0),
+  max = round(max(retirementLoc$avg_annual_temp, na.rm = T), 0),
+  value = quantile(retirementLoc$avg_annual_temp,
+    probs = c(0, 1), na.rm = T
+  )
+)
+br()
+tags$h4("Valuation")
+# Input: median home price ----
+sliderInput("median_home_price", "Median home price: ",
+  min = plyr::round_any(min(retirementLoc$median_home_price, na.rm = T), 1000),
+  max = plyr::round_any(max(retirementLoc$median_home_price, na.rm = T), 1000),
+  value = plyr::round_any(quantile(retirementLoc$median_home_price,
+    probs = c(.025, .975), na.rm = T
+  ), 1000),
+  step = 25000
+)
+# Input: year-over-year price change percentage ----
+sliderInput("yoy_price_chg_pct", "Year-over-year price change (%): ",
+  min = round(min(retirementLoc$yoy_price_chg_pct, na.rm = T), 0),
+  max = round(max(retirementLoc$yoy_price_chg_pct, na.rm = T), 0),
+  value = quantile(retirementLoc$yoy_price_chg_pct,
+    probs = c(.025, .975), na.rm = T
+  )
+)
+# Input: home payoff  ----
+sliderInput("years_to_payoff", "Home payoff in years:",
+  min = round(min(retirementLoc$years_to_payoff, na.rm = T), 0),
+  max = round(max(retirementLoc$years_to_payoff, na.rm = T), 0),
+  value = quantile(retirementLoc$years_to_payoff,
+    probs = c(0, .975), na.rm = T
+  ),
+  step = .5
+)
 ```
 
 
 ```{r filtered-dataset, include=F}
 filtered <- reactive({
     retirementLoc %>% 
-      dplyr::filter(stname %in% input$stname) %>%
+    # grouping variables
+      dplyr::filter(state %in% input$state) %>%
       dplyr::filter(cbsa_desig %in% input$cbsa_desig) %>% 
-      dplyr::filter(pop_2020 >=input$pop_2020[1] & pop_2020 <= input$pop_2020[2]) %>%
+      dplyr::filter(rucc_2013 %in% input$rucc_2013) %>% 
+    # demographic
+      dplyr::filter(pop_2020 >= input$pop_2020[1] & pop_2020 <= input$pop_2020[2]) %>%
       dplyr::filter(pct_pop_change >=input$pct_pop_change[1] & pct_pop_change <= input$pct_pop_change[2]) %>% 
-      dplyr::filter(partisan_lean >=input$partisan_lean[1] & partisan_lean <= input$partisan_lean[2]) %>% 
+      dplyr::filter(partisan_lean >=input$partisan_lean[1] & partisan_lean <= input$partisan_lean[2]) %>%
+dplyr::filter(broadband_2017 >= input$broadband_2017[1] & broadband_2017 <= input$broadband_2017[2]) %>% 
+    dplyr::filter(med_hh_inc_2019 >= input$med_hh_inc_2019[1] & med_hh_inc_2019 <= input$med_hh_inc_2019[2]) %>% 
+        dplyr::filter(pct_bachelor >= input$pct_bachelor[1] & pct_bachelor <= input$pct_bachelor[2]) %>% 
+    # healthcare
       dplyr::filter(life_exp >= input$life_exp[1] & life_exp <= input$life_exp[2]) %>% 
-      dplyr::filter(avg_ann_temp >= input$avg_ann_temp[1] & avg_ann_temp <= input$avg_ann_temp[2]) %>% 
-      dplyr::filter(broadband_2017 >= input$broadband_2017[1] & broadband_2017 <= input$broadband_2017[2]) %>% 
-      dplyr::filter(years_to_payoff >= input$years_to_payoff[1] & years_to_payoff <= input$years_to_payoff[2]) %>% 
       dplyr::filter(violent_crime_rate >= input$violent_crime_rate[1] & violent_crime_rate <= input$violent_crime_rate[2]) %>% 
-    dplyr::filter(avg_daily_pm_2_5 >= input$avg_daily_pm_2_5[1] & avg_daily_pm_2_5 <= input$avg_daily_pm_2_5[2]) %>% 
-    dplyr::filter(prim_care_dr_rate >= input$prim_care_dr_rate[1] & prim_care_dr_rate <= input$prim_care_dr_rate[2])
+    dplyr::filter(average_daily_pm2_5 >= input$average_daily_pm2_5[1] & average_daily_pm2_5 <= input$average_daily_pm2_5[2]) %>% 
+    dplyr::filter(prim_care_dr_rate >= input$prim_care_dr_rate[1] & prim_care_dr_rate <= input$prim_care_dr_rate[2]) %>% 
+        # weather 
+    dplyr::filter(avg_annual_temp >= input$avg_annual_temp[1] & avg_annual_temp <= input$avg_annual_temp[2]) %>% 
+ # home valuation
+     dplyr::filter(median_home_price >= input$median_home_price[1] & median_home_price <= input$median_home_price[2]) %>% 
+         dplyr::filter(yoy_price_chg_pct >= input$yoy_price_chg_pct[1] & yoy_price_chg_pct <= input$yoy_price_chg_pct[2]) %>%
+    dplyr::filter(years_to_payoff >= input$years_to_payoff[1] & years_to_payoff <= input$years_to_payoff[2])
+
         # filter(type %in% input$type | !complete.cases(type)) %>%
         # filter(class %in% input$class | class == "")S
   })
@@ -189,47 +285,129 @@ filtered <- reactive({
 
 ### Map
 
-```{r render-map}
+```{r map-counties}
 renderLeaflet({
   df <- filtered()
   pal <- colorFactor(
         palette = c('#4bbf73', '#007bff', '#e83e8c', '#fd7e14', '#f0ad4e'),
         domain = df$cbsa_desig
 )
-  leaflet(df) %>% 
+airplaneIcon <- makeIcon(
+  iconUrl = "./img/plane.svg",
+  iconWidth = 15, iconHeight = 15,
+  #iconAnchorX = 0, iconAnchorY = 0
+)
+mortarboardIcon <- makeIcon(
+  iconUrl = "./img/mortarboard.svg",
+  iconWidth = 15, iconHeight = 15,
+  #iconAnchorX = 0, iconAnchorY = 0
+)
+chevronIcon <- makeIcon(
+  iconUrl = "./img/chevron.svg",
+  iconWidth = 15, iconHeight = 15
+)
+hospitalIcon <- makeIcon(
+  iconUrl = "./img/hospital.svg",
+  iconWidth = 15, iconHeight = 15
+)
+  leaflet() %>% 
   #addTiles() %>% 
-  addProviderTiles(providers$CartoDB.Positron) %>% 
-  # setMaxBounds(lng1 = min(df$lon),
-  #              lng2 = max(df$lon),
-  #              lat1 = min(df$lat),
-  #              lat2 = max(df$lat)
-  #              ) %>% 
-  setView(-98, 39.8283, zoom = 4) %>% 
-  addCircleMarkers(lng = ~lon,
-             lat = ~lat,
-             color = ~pal(cbsa_desig),
-             radius = 10,
-             fillOpacity = .25,
-             fill = T,
-             stroke = T,
-             weight = 3,
-             popup = paste0("County: ", df$ctyname, "<br>",
-                            "Pop 2020: ", df$pop_2020, "<br>",
-                            "Growth: ", df$pct_pop_change,"%", "<br>",
-                            "Part Lean: ", df$partisan_lean, "%", "<br>",
-                            "Life exp: ", df$life_exp, "<br>",
-                            "Avg temp: ", df$avg_ann_temp, "<br>",
-                            "Broadband: ", df$broadband_2017,"%", "<br>",
-                            "Payoff: ", df$years_to_payoff, " years", "<br>",
-                            "Crime rate: ", df$violent_crime_rate, "<br>",
-                            "PM 2.5: ", df$avg_daily_pm_2_5, "<br>",
-                            "Prim. Care: ", df$prim_care_dr_rate, "<br>")
-             ) %>% 
-    addLegend("bottomright", pal = pal, values = df$cbsa_desig,
-    title = "CBSA Designation",
-    labFormat = labelFormat(prefix = "$"),
-    opacity = 1
-  )
+  addProviderTiles(providers$CartoDB.DarkMatter) %>% 
+  fitBounds(lng1 = min(df$lon, na.rm = T),
+           lng2 = max(df$lon,  na.rm = T),
+           lat1 = min(df$lat,  na.rm = T),
+           lat2 = max(df$lat,  na.rm = T)
+               ) %>%
+  # setView(mean(df$lon, na.rm = T),
+  #         mean(df$lat, na.rm = T),
+  #         zoom = 4) %>%
+     addCircleMarkers(
+      data = df,
+      lng = ~lon,
+     lat = ~lat,
+     color = ~pal(cbsa_desig),
+     radius = 10,
+     fillOpacity = .25,
+     fill = T,
+     stroke = T,
+     weight = 3,
+     popup = popupTable(df,
+                        row.numbers = F,
+                        feature.id = F,
+                        zcol = c("state",
+                                 "county",
+                                 "pop_2020",
+                                 "years_to_payoff"))) %>% 
+  addMarkers(
+    data = airportLoc, 
+    lng = ~lon,
+    lat = ~lat,
+    icon = airplaneIcon,
+    group = "Airports",
+    popup = popupTable(airportLoc,
+                       zcol = c("airport",
+                                "rank",
+                                "hub",
+                                "enplane_2020"
+                                  ),
+                       row.numbers = F,
+                       feature.id = F)) %>%
+    addMarkers(
+    data = collegeLoc, 
+    lng = ~lon,
+    lat = ~lat,
+    icon = mortarboardIcon,
+    group = "Colleges",
+    popup = popupTable(collegeLoc,
+                       zcol = c("name",
+                                "students_2020"
+                                  ),
+                       row.numbers = F,
+                       feature.id = F)) %>%
+    addMarkers(
+    data = hospitalLoc, 
+    lng = ~lon,
+    lat = ~lat,
+    icon = hospitalIcon,
+    group = "Hospitals",
+    popup = popupTable(hospitalLoc,
+                       zcol = c("name",
+                                "type",
+                                "ownership",
+                                "emer_room",
+                                "stars",
+                                "verify"
+                                  ),
+                       row.numbers = F,
+                       feature.id = F)) %>%
+    addMarkers(
+    data = militaryBases, 
+    lng = ~lon,
+    lat = ~lat,
+    icon = chevronIcon,
+    group = "Bases",
+    popup = popupTable(militaryBases,
+                       zcol = c("base",
+                                "perimeter",
+                                "area"
+                                  ),
+                       row.numbers = F,
+                       feature.id = F)) %>%
+    addLegend("bottomright", 
+              pal = pal, 
+              values = df$cbsa_desig,
+              title = "CBSA Designation",
+              labFormat = labelFormat(prefix = "$"),
+              opacity = 1
+    ) %>% 
+    addLayersControl(
+            overlayGroups = c("Airports", "Colleges", "Hospitals", "Bases"),
+            options = layersControlOptions(collapsed = FALSE)
+    ) %>% 
+    hideGroup("Airports") %>% 
+    hideGroup("Colleges") %>% 
+    hideGroup("Hospitals") %>% 
+    hideGroup("Bases")
 })
 ```
 
@@ -239,17 +417,37 @@ renderLeaflet({
 ```{r render-table-1}
 library(DT)
 DT::renderDataTable({
- df <- filtered()
- datatable(df[, 4:15],
-           rownames = F,
-           extensions = c('FixedColumns', 'Buttons'),
-           options = list(
-              fixedColumns = list(leftColumns = 2),
-              pageLength = 25,
-              buttons = c('copy', 'csv', 'excel', 'pdf', 'print'),
-              dom = 'Bfrtip'
+  df <- filtered()
+  datatable(df,
+    rownames = F,
+    style = "bootstrap",
+    class = "compact",
+    extensions = c("Buttons", "Scroller"),
+    options = list(
+      dom = "Blrtip",
+      deferRender = TRUE,
+      scrollY = 300,
+      scroller = TRUE,
+      columnDefs = list(
+        list(
+          visible = TRUE,
+          targets = c(1:7)
+        )
+      ),
+      buttons = list(
+        I("colvis"), # turn columns on and off
+        "csv", # download as .csv
+        "excel" # download as .xlsx
+      )
+    ),
+    colnames = c(
+      "fips", "lon", "lat", "state", "county", "pop_2020", "pct_pop_change",
+      "cbsa_desig", "rucc_2013", "partisan_lean", "med_hh_inc_2019",
+      "pct_bachelor", "broadband_2017", "life_exp", "violent_crime_rate",
+      "average_daily_pm2_5", "prim_care_dr_rate", "avg_annual_temp",
+      "median_home_price", "yoy_price_chg_pct", "years_to_payoff"
+    )
   )
- )
 })
 
 ```
@@ -260,49 +458,57 @@ DT::renderDataTable({
 
 ### Plot:
 
-```{r}
+```{r input-axis}
 pickerInput(
    inputId = "xaxis",
    label = "x-axis:", 
-    choices = c("avg_ann_temp", "avg_daily_pm_2_5", "broadband_2017",
-                "life_exp", "partisan_lean", "pct_pop_change", "pop_2020",
-                "prim_care_dr_rate", "violent_crime_rate",
-                "years_to_payoff"),
+    choices = c("average_daily_pm2_5", "avg_annual_temp", "broadband_2017", 
+"cbsa_desig", "county", "fips", "lat", "life_exp", "lon", "med_hh_inc_2019", 
+"median_home_price", "partisan_lean", "pct_bachelor", "pct_pop_change", 
+"pop_2020", "prim_care_dr_rate", "rucc_2013", "state", "violent_crime_rate", 
+"years_to_payoff", "yoy_price_chg_pct"),
    selected ="pct_pop_change"
                 
 )
 pickerInput(
    inputId = "yaxis",
    label = "y-axis:", 
-    choices = c("avg_ann_temp", "avg_daily_pm_2_5", "broadband_2017",
-                "life_exp", "partisan_lean", "pct_pop_change", 
-                "pop_2020", "prim_care_dr_rate", "violent_crime_rate",
-                "years_to_payoff"),
+    choices = c("average_daily_pm2_5", "avg_annual_temp", "broadband_2017", 
+"cbsa_desig", "county", "fips", "lat", "life_exp", "lon", "med_hh_inc_2019", 
+"median_home_price", "partisan_lean", "pct_bachelor", "pct_pop_change", 
+"pop_2020", "prim_care_dr_rate", "rucc_2013", "state", "violent_crime_rate", 
+"years_to_payoff", "yoy_price_chg_pct"),
    selected = "years_to_payoff"
 )
 pickerInput(
   inputId = "groupby",
   label = "Group by:",
-  choices = c("stname", "cbsa_desig"),
-  selected = "stname"
+  choices = c("state", "cbsa_desig", "rucc_2013"),
+  selected = "state"
+)
+pickerInput(
+  inputId = "size",
+  label = "Size: ",
+  choices = c("pop_2020", "pct_pop_change", "yoy_price_chg_pct")
 )
 
 ```
+
 
 ## Row
 
 ### Plot
 
-```{r plot-mydf}
+```{r plot-analyzer}
 renderPlotly({
   df <-filtered()
   p <- ggplot(df, aes_string(input$xaxis, 
                                input$yaxis,
                              color = input$groupby,
-                             size = "pop_2020",
-                             key = "ctyname"))
+                             size = input$size,
+                             key = "county"))
   p <- p + geom_point(alpha = .5)
-  p <- p + geom_smooth()
+  #p <- p + theme_dark()
   ggplotly(p, tooltip = c("key",
                           "size",
                           "color",
@@ -312,7 +518,145 @@ renderPlotly({
 ```
 
 
+# Migrator
 
+## Sidebar {.sidebar data-width=400}
+
+### County:
+
+```{r migrator-sidebar}
+tags$p("The IRS published county-to-county migration data based on tax returns.  Enter a single state and county to see where people are moving from (origin) and where they are moving to (target). Push the 'plot' button to see the results.")
+# Input: State ----
+pickerInput(inputId = "state2",
+            label = "State: ",
+            choices = c(sort(unique(irsMigration$state_origin))),
+            selected = "FL"
+)
+textInput("county", 
+          "County: ",
+          placeholder = "Pinellas",
+          value = "Pinellas"
+)
+actionButton("button", "Plot chart!")
+```
+
+```{r filtered-migration}
+migration_out_filtered <- eventReactive(input$button, {
+    irsMigration %>% 
+    dplyr::filter(state_origin == input$state2) %>% 
+    dplyr::filter(grepl(input$county, county_origin))
+  })
+migration_in_filtered <- eventReactive(input$button, {
+  irsMigration %>% 
+    dplyr::filter(state_target == input$state2) %>% 
+    dplyr::filter(grepl(input$county, county_target))
+})
+  
+```
+
+
+## Row {.tabset}
+
+### Out Migration
+
+```{r map-migration-out}
+renderLeaflet({
+df.out <- migration_out_filtered()
+#lines
+lines <- 
+        df.out %>% 
+        mutate(id = 1:n() %>% as.character) %>% 
+        select(id, lat_origin, lat_target, lon_origin, lon_target) %>% 
+        pivot_longer(!id,
+                     names_to = "coord", 
+                     values_to = "value"
+                     ) %>% 
+        separate(coord, into = c("dir", "group"), sep = "_") %>% 
+        pivot_wider(c(id, group), names_from = dir, values_from = value)
+#map
+m <-
+        leaflet() %>% 
+        addProviderTiles(providers$CartoDB.DarkMatter) %>% 
+  addPolylines(data = lines,
+                     lat = ~lat,
+                     lng = ~lon,
+                     weight = .5,
+                     group = ~group) %>% 
+        addCircleMarkers(data = df.out,
+                         lat = ~lat_target,
+                         lng = ~lon_target,
+                         popup = popupTable(df.out,
+                                      zcol = c("state_target",
+                                               "county_target",
+                                               "state_origin",
+                                               "county_origin",
+                                               "returns",
+                                               "exempts",
+                                               "avg_agi"),
+                                      row.numbers = F,
+                                      feature.id = F
+                                      ),
+                         radius = 5
+        )
+m
+})
+```
+
+### In Migration
+
+```{r map-migration-in}
+renderLeaflet({
+df.in <- migration_in_filtered()
+#lines
+lines <- 
+        df.in %>% 
+        mutate(id = 1:n() %>% as.character) %>% 
+        select(id, lat_origin, lat_target, lon_origin, lon_target) %>% 
+        pivot_longer(!id,
+                     names_to = "coord", 
+                     values_to = "value"
+                     ) %>% 
+        separate(coord, into = c("dir", "group"), sep = "_") %>% 
+        pivot_wider(c(id, group), names_from = dir, values_from = value)
+#map
+m <-
+        leaflet() %>% 
+        addProviderTiles(providers$CartoDB.DarkMatter) %>% 
+  addPolylines(data = lines,
+                     lat = ~lat,
+                     lng = ~lon,
+                     weight = .5,
+                     color = "#f0ad4e",
+                     group = ~group) %>% 
+        addCircleMarkers(data = df.in,
+                         lat = ~lat_origin,
+                         lng = ~lon_origin,
+                         color = "#f0ad4e",
+                         popup = popupTable(df.in,
+                                      zcol = c("state_target",
+                                               "county_target",
+                                               "state_origin",
+                                               "county_origin",
+                                               "returns",
+                                               "exempts",
+                                               "avg_agi"),
+                                      row.numbers = F,
+                                      feature.id = F
+                                      ),
+                         radius = 5
+        )
+m
+})
+
+```
+
+# Citations
+
+## Row
+
+### Citations
+
+<div id="refs"></div>
 
 
 
